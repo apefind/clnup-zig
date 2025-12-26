@@ -44,7 +44,7 @@ pub fn main() !void {
 
     const state = try parseArgs(allocator);
 
-    if (!state.quiet) {
+    if (state.verbose) {
         std.debug.print("Using rules from: {s}\n", .{state.clnup_path});
         std.debug.print("Target path: {s}\n", .{state.root});
         std.debug.print("Action: {s}\n", .{if (state.dry_run) "dry run (print)" else "delete"});
