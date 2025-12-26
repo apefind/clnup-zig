@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Action = enum {
+    Delete,
     Print,
 };
 
@@ -8,6 +9,7 @@ const ActionState = struct {
     recursive: bool,
     quiet: bool,
     verbose: bool,
+    dry_run: bool,
     clnup_path: []const u8,
     root: []const u8,
 };
@@ -32,6 +34,9 @@ const HandlerFn = *const fn (
     verbose: bool,
 ) anyerror!void;
 
+// ------------------------------------------------------------
+// Entry point
+// ------------------------------------------------------------
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -42,6 +47,7 @@ pub fn main() !void {
     if (!state.quiet) {
         std.debug.print("Using rules from: {s}\n", .{state.clnup_path});
         std.debug.print("Target path: {s}\n", .{state.root});
+        std.debug.print("Action: {s}\n", .{if (state.dry_run) "dry run (print)" else "delete"});
         if (state.recursive)
             std.debug.print("Recursion: enabled\n", .{});
         if (state.verbose)
@@ -57,7 +63,7 @@ pub fn main() !void {
         allocator.free(rules);
     }
 
-    const handler: HandlerFn = printHandler;
+    const handler: HandlerFn = if (state.dry_run) printHandler else deleteHandler;
 
     if (state.recursive) {
         try walk(state.root, rules, handler, allocator, state);
@@ -69,7 +75,6 @@ pub fn main() !void {
 // ------------------------------------------------------------
 // CLI parsing
 // ------------------------------------------------------------
-
 fn parseArgs(_: std.mem.Allocator) !ActionState {
     var args = std.process.args();
     _ = args.next(); // skip executable name
@@ -77,6 +82,7 @@ fn parseArgs(_: std.mem.Allocator) !ActionState {
     var recursive = false;
     var quiet = false;
     var verbose = false;
+    var dry_run = false;
     var clnup_path: []const u8 = ".clnup";
     var root: []const u8 = ".";
 
@@ -87,11 +93,12 @@ fn parseArgs(_: std.mem.Allocator) !ActionState {
             quiet = true;
         } else if (std.mem.eql(u8, arg, "-v")) {
             verbose = true;
+        } else if (std.mem.eql(u8, arg, "-d")) {
+            dry_run = true;
         } else if (std.mem.eql(u8, arg, "-f")) {
             clnup_path = args.next() orelse usage();
         } else if (std.mem.startsWith(u8, arg, "-")) {
             usage();
-            return error.InvalidArguments;
         } else {
             root = arg;
         }
@@ -101,6 +108,7 @@ fn parseArgs(_: std.mem.Allocator) !ActionState {
         .recursive = recursive,
         .quiet = quiet,
         .verbose = verbose,
+        .dry_run = dry_run,
         .clnup_path = clnup_path,
         .root = root,
     };
@@ -108,12 +116,13 @@ fn parseArgs(_: std.mem.Allocator) !ActionState {
 
 fn usage() noreturn {
     std.debug.print(
-        "Usage: clnup [-r] [-f <file>] [-q] [-v] [path]\n" ++
+        "Usage: clnup [-r] [-f <file>] [-q] [-v] [-d] [path]\n" ++
             "Options:\n" ++
             "  -r       Recurse into subdirectories\n" ++
             "  -f FILE  Specify cleanup rules file (default: .clnup)\n" ++
             "  -q       Quiet mode (suppress normal output)\n" ++
-            "  -v       Verbose mode (extra logging)\n",
+            "  -v       Verbose mode (extra logging)\n" ++
+            "  -d       Dry run (print matched paths, no deletion)\n",
         .{},
     );
     std.process.exit(1);
@@ -122,7 +131,6 @@ fn usage() noreturn {
 // ------------------------------------------------------------
 // Rules parsing
 // ------------------------------------------------------------
-
 fn parseRules(allocator: std.mem.Allocator, input: []const u8) ![]Rule {
     var list = std.ArrayList(Rule){};
 
@@ -163,7 +171,6 @@ fn parseRules(allocator: std.mem.Allocator, input: []const u8) ![]Rule {
 // ------------------------------------------------------------
 // Rule evaluation and glob matching
 // ------------------------------------------------------------
-
 fn evaluate(rel: []const u8, is_dir: bool, rules: []Rule) ActionResult {
     var result: ActionResult = .Keep;
     for (rules) |r| {
@@ -224,7 +231,6 @@ fn fnmatch(pattern: []const u8, name: []const u8) bool {
 // ------------------------------------------------------------
 // Directory traversal
 // ------------------------------------------------------------
-
 fn processDir(
     root: []const u8,
     rules: []Rule,
@@ -277,18 +283,24 @@ fn walk(
 // ------------------------------------------------------------
 // Handlers
 // ------------------------------------------------------------
-
-fn printHandler(
-    path: []const u8,
-    _: bool,
-    _: std.mem.Allocator,
-    quiet: bool,
-    verbose: bool,
-) !void {
+fn printHandler(path: []const u8, _: bool, _: std.mem.Allocator, quiet: bool, verbose: bool) !void {
     if (quiet) return;
-    if (verbose) {
-        std.debug.print("[match] {s}\n", .{path});
-    } else {
+    if (verbose)
+        std.debug.print("[dry-run] {s}\n", .{path})
+    else
         std.debug.print("{s}\n", .{path});
+}
+
+fn deleteHandler(path: []const u8, is_dir: bool, _: std.mem.Allocator, quiet: bool, verbose: bool) !void {
+    if (!quiet) {
+        if (verbose)
+            std.debug.print("[delete] {s}\n", .{path})
+        else
+            std.debug.print("{s}\n", .{path});
     }
+
+    if (is_dir)
+        try std.fs.cwd().deleteTree(path)
+    else
+        try std.fs.cwd().deleteFile(path);
 }
