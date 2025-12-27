@@ -172,5 +172,5 @@ or run directly with Zig:
 License
 -------
 
-MIT License (or your preferred license).
+MIT License.
 No external dependencies beyond Zig standard library.
