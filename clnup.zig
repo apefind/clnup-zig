@@ -75,8 +75,10 @@ pub fn main() !void {
 // ------------------------------------------------------------
 // CLI parsing
 // ------------------------------------------------------------
-fn parseArgs(_: std.mem.Allocator) !ActionState {
-    var args = std.process.args();
+fn parseArgs(alloc: std.mem.Allocator) !ActionState {
+    var args = try std.process.argsWithAllocator(alloc);
+    defer args.deinit();
+
     _ = args.next(); // skip executable name
 
     var recursive = false;
@@ -137,7 +139,8 @@ fn parseRules(allocator: std.mem.Allocator, input: []const u8) ![]Rule {
     var it = std.mem.splitScalar(u8, input, '\n');
     while (it.next()) |line_raw| {
         const line = std.mem.trim(u8, line_raw, " \t\r");
-        if (line.len == 0 or line[0] == '#') continue;
+        if (line.len == 0 or line[0] == '#')
+            continue;
 
         var r = Rule{
             .pattern = undefined,
