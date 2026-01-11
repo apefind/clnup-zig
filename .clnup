@@ -3,3 +3,5 @@
 *.bck
 *.tmp
 *.swp
+*.exe
+*.pdb
